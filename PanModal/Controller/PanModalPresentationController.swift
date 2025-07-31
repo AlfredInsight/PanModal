@@ -629,8 +629,9 @@ private extension PanModalPresentationController {
             return false
         }
 
-        let loc = panGestureRecognizer.location(in: presentedView)
-        return scrollView.frame.contains(loc) || scrollView.isScrolling
+        let location = panGestureRecognizer.location(in: presentedView)
+        let scrollFrameInPresented = presentedView.convert(scrollView.bounds, to: scrollView)
+        return scrollFrameInPresented.contains(location) || scrollView.isScrolling
     }
 
     /**
