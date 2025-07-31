@@ -83,6 +83,8 @@ open class PanModalPresentationController: UIPresentationController {
      */
     private var longFormYPosition: CGFloat = 0
 
+    private var adjustYPosition: CGFloat = 0
+
     /**
      Determine anchored Y postion based on the `anchorModalToLongForm` flag
      */
@@ -324,8 +326,7 @@ private extension PanModalPresentationController {
     var isPresentedViewAnchored: Bool {
         if !isPresentedViewAnimating,
            extendsPanScrolling,
-           presentedView.frame.minY.rounded() <= anchoredYPosition.rounded()
-        {
+           presentedView.frame.minY.rounded() <= anchoredYPosition.rounded() {
             return true
         }
 
@@ -440,6 +441,10 @@ private extension PanModalPresentationController {
         longFormYPosition = layoutPresentable.longFormYPos
         anchorModalToLongForm = layoutPresentable.anchorModalToLongForm
         extendsPanScrolling = layoutPresentable.allowsExtendedPanScrolling
+        if adjustYPosition == 0.0 {
+            adjustYPosition = shortFormYPosition
+            handlePanelHeightChanged(adjustYPosition)
+        }
 
         containerView?.isUserInteractionEnabled = layoutPresentable.isUserInteractionEnabled
     }
@@ -492,7 +497,8 @@ private extension PanModalPresentationController {
         }
 
         switch recognizer.state {
-        case .began, .changed:
+        case .began,
+             .changed:
 
             /**
              Respond accordingly to pan gesture translation
@@ -525,8 +531,7 @@ private extension PanModalPresentationController {
                     transition(to: .longForm)
 
                 } else if (nearest(to: presentedView.frame.minY, inValues: [longFormYPosition, containerView.bounds.height]) == longFormYPosition
-                    && presentedView.frame.minY < shortFormYPosition) || presentable?.allowsDragToDismiss == false
-                {
+                    && presentedView.frame.minY < shortFormYPosition) || presentable?.allowsDragToDismiss == false {
                     transition(to: .shortForm)
 
                 } else {
@@ -625,7 +630,7 @@ private extension PanModalPresentationController {
         }
 
         let loc = panGestureRecognizer.location(in: presentedView)
-        return (scrollView.frame.contains(loc) || scrollView.isScrolling)
+        return scrollView.frame.contains(loc) || scrollView.isScrolling
     }
 
     /**
@@ -645,18 +650,26 @@ private extension PanModalPresentationController {
     }
 
     func snap(toYPosition yPos: CGFloat) {
+        let oldYPos = adjustYPosition
+        let dy = yPos - oldYPos
         PanModalAnimator.animate({ [weak self] in
-            self?.adjust(toYPosition: yPos)
+            self?.adjust(toYPosition: yPos, animate: true)
             self?.isPresentedViewAnimating = true
-        }, config: presentable) { [weak self] didComplete in
+        }, config: presentable, onUpdate: { [weak self] progress in
+            let progressYPos = oldYPos + (dy * progress)
+            self?.handlePanelHeightChanged(progressYPos)
+        }) { [weak self] didComplete in
             self?.isPresentedViewAnimating = !didComplete
+            self?.handlePanelHeightChanged(yPos)
         }
     }
 
     /**
      Sets the y position of the presentedView & adjusts the backgroundView.
      */
-    func adjust(toYPosition yPos: CGFloat) {
+    func adjust(toYPosition yPos: CGFloat, animate: Bool = false) {
+        if !animate { handlePanelHeightChanged(yPos) }
+        adjustYPosition = yPos
         presentedView.frame.origin.y = max(yPos, anchoredYPosition)
 
         guard presentedView.frame.origin.y > shortFormYPosition else {
@@ -684,6 +697,12 @@ private extension PanModalPresentationController {
         guard let nearestVal = values.min(by: { abs(number - $0) < abs(number - $1) })
         else { return number }
         return nearestVal
+    }
+
+    private func handlePanelHeightChanged(_ yPos: CGFloat) {
+        // yPos convert to content height
+        let newHeight = (containerView?.frame.height ?? UIScreen.main.bounds.height) - yPos
+        presentable?.panModalDidChangeHeight(newHeight)
     }
 }
 
@@ -744,8 +763,7 @@ private extension PanModalPresentationController {
             }
 
         } else if presentedViewController.view.isKind(of: UIScrollView.self),
-                  !isPresentedViewAnimating, scrollView.contentOffset.y <= 0
-        {
+                  !isPresentedViewAnimating, scrollView.contentOffset.y <= 0 {
             /**
              In the case where we drag down quickly on the scroll view and let go,
              `handleScrollViewTopBounce` adds a nice elegant touch.
